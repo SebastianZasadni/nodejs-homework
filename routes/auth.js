@@ -10,6 +10,7 @@ const jwt = require('jsonwebtoken');
 const User = require('../models/user.js');
 const auth = require('../middleware/auth.js');
 const upload = require('../middleware/multer.js');
+const sendEmail = require('../controllers/email/sendEmail.js')
 const storeImage = path.join(process.cwd(), 'public/avatars');
 const { SECRET } = process.env;
 
@@ -38,15 +39,35 @@ const subscriptionSchema = Joi.object({
         .valid("pro", "starter", "business")
 });
 
+const verificationSchema = Joi.object({
+    verify: Joi.boolean()
+        .required(),
+    verificationToken: Joi.number()
+        .required()
+})
+
+const emailSchema = Joi.object({
+    email: Joi.string()
+        .email()
+        .required()
+})
+
 router.post("/signup", async (req, res, next) => {
     try {
         const { email, password, subscription } = req.body;
         const avatarURL = gravatar.url(email);
-        const validate = registerSchema.validate({
+        const verificationToken = Math.floor(Math.random(10) * 1000000);
+        const verify = false;
+        const validateRegister = registerSchema.validate({
             email, password, subscription, avatarURL
         });
 
-        if (validate.error) { return res.status(400).json(validate.error) };
+        const validateVerification = verificationSchema.validate({
+            verify, verificationToken
+        });
+
+        if (validateRegister.error) { return res.status(400).json(validateRegister.error) };
+        if (validateVerification.error) { return res.status(400).json(validateVerification.error) };
         const isUser = await User.findOne({ email });
         isUser && res.status(409).json({
             message: "Email in use"
@@ -58,8 +79,12 @@ router.post("/signup", async (req, res, next) => {
             email,
             password: hashedPassword,
             subscription,
-            avatarURL
+            avatarURL,
+            verify,
+            verificationToken,
         });
+
+        sendEmail(email, verificationToken);
 
         return res.status(201).json({
             status: "success",
@@ -67,7 +92,9 @@ router.post("/signup", async (req, res, next) => {
                 user: {
                     email,
                     subscription,
-                    avatarURL
+                    avatarURL,
+                    verify,
+                    verificationToken
                 }
             },
         });
@@ -82,6 +109,7 @@ router.post('/login', async (req, res, next) => {
         const validate = loginSchema.validate({ email, password });
         if (validate.error) { return res.status(400).json(validate.error) };
         const isUser = await User.findOne({ email });
+        if (isUser.verify !== true) { return res.status(401).json({ status: "failed", message: "User not verified" }) }
         if (!isUser) {
             return res.status(401).json({ message: "Email or password is wrong" });
         }
@@ -152,6 +180,32 @@ router.patch('/avatars', auth, upload.single('avatar'), async (req, res, next) =
     }
 });
 
+router.get('/verify/:verificationToken', async (req, res, next) => {
+    const { verificationToken } = req.params;
+    const isVerificationToken = await User.findOneAndUpdate({ verificationToken }, { verify: true, verificationToken: null });
+    if (!isVerificationToken) {
+        return res.status(404).json({ status: "failed", message: "User not found" });
+    }
+    return res.status(200).json({ status: "success", message: "Verification successful" })
+})
 
+router.post('/verify', async (req, res, next) => {
+    const { email } = req.body;
+    const verificationToken = Math.floor(Math.random(10) * 1000000);
+    const validate = emailSchema.validate({
+        email
+    })
+    if (validate.error) { return res.status(400).json(validate.error) }
+    if (!email) { return res.status(400).json({ message: "Missing required field email" }) };
+    const contact = await User.findOneAndUpdate({ email }, { verificationToken });
+    const { verify } = contact;
+    if (verify === true) { return res.status(400).json({ message: "Verification has already been passed" }) }
+    else {
+        sendEmail(email, verificationToken);
+        return res.status(200).json({ message: "Verification email sent" })
+    };
+
+
+})
 
 module.exports = router; 
