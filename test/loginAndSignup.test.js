@@ -4,7 +4,7 @@ const User = require('../models/user');
 const bcrypt = require('bcrypt');
 
 const dummyUser = {
-    email: "testt@gmail.com",
+    email: "test@gmail.com",
     password: 'test',
     subscription: "pro",
     avatarURL: null,
@@ -28,7 +28,9 @@ describe('Test login and register', () => {
             email: dummyUser.email,
             password: hashedPassword,
             subscription: dummyUser.subscription,
-            avatarURL: dummyUser.avatarURL
+            avatarURL: dummyUser.avatarURL,
+            verificationToken: 312456,
+            verify: true
         }
         )
         const { email, password } = dummyUser;
